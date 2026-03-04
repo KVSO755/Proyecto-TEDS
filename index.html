@@ -1,0 +1,209 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <title>MVP Detección de Atención</title>
+    <style>
+        body { font-family: sans-serif; text-align: center; margin-top: 30px; background-color: #f4f4f9; }
+        #video { border: 3px solid #333; width: 640px; height: 480px; border-radius: 8px; transform: scaleX(-1); }
+        #estado { font-size: 30px; font-weight: bold; margin-top: 15px; color: #333; transition: color 0.3s; }
+        .alerta { color: #d9534f !important; }
+        
+        /* Estilos para la barra de distracción */
+        #contenedor-barra {
+            width: 640px;
+            height: 30px;
+            background-color: #e0e0e0;
+            margin: 15px auto;
+            border-radius: 15px;
+            overflow: hidden;
+            border: 2px solid #ccc;
+            position: relative;
+        }
+        #barra {
+            height: 100%;
+            width: 0%;
+            background-color: #4CAF50; /* Empieza verde */
+            transition: width 0.4s ease, background-color 0.4s ease;
+        }
+        #texto-barra {
+            position: absolute;
+            width: 100%;
+            text-align: center;
+            line-height: 30px;
+            font-weight: bold;
+            color: #333;
+            top: 0;
+            left: 0;
+        }
+    </style>
+</head>
+<body>
+    <h1>Monitor de Atención - Cognitive Services</h1>
+    
+    <video id="video" autoplay muted></video>
+    
+    <div id="contenedor-barra">
+        <div id="barra"></div>
+        <div id="texto-barra">Nivel de distracción: 0.0s / 5.0s</div>
+    </div>
+
+    <canvas id="canvas" style="display:none;" width="640" height="480"></canvas>
+    <p id="estado">Iniciando cámara...</p>
+
+    <script>
+        // ==========================================
+        // 1. CONFIGURACIÓN DE AZURE
+        // ==========================================
+        const AZURE_ENDPOINT = "https://face-mpv.cognitiveservices.azure.com";
+        const SUBSCRIPTION_KEY = "AnTg6Uzlo1eHaQLad6r9S1j0K4woOaYoHDJUcnLEFngSYML35ptPJQQJ99CCAC8vTInXJ3w3AAAKACOGr4jH";
+
+        // ==========================================
+        // 2. AJUSTES DE PRECISIÓN (¡Tunea tu IA aquí!)
+        // ==========================================
+        const UMBRAL_YAW = 20;         // Tolerancia Izquierda/Derecha
+        const UMBRAL_PITCH_DOWN = 25;  // Tolerancia Mirar hacia abajo (Teclado/Leer)
+        const UMBRAL_PITCH_UP = 10;    // Tolerancia Mirar hacia arriba (Mosca en el techo)
+        const FRECUENCIA_SCAN = 1500;  // 1.5 segundos (Más rápido, más preciso)
+
+        const video = document.getElementById('video');
+        const canvas = document.getElementById('canvas');
+        const estadoTexto = document.getElementById('estado');
+        const barra = document.getElementById('barra');
+        const textoBarra = document.getElementById('texto-barra');
+        const ctx = canvas.getContext('2d');
+
+        // ==========================================
+        // 3. VARIABLES DEL ACUMULADOR DE TIEMPO
+        // ==========================================
+        let tiempoAnterior = Date.now();
+        let nivelDistraccion = 0.0;
+        const LIMITE_SEGUNDOS = 5.0;      // Segundos máximos antes de la notificación
+        const TASA_RECUPERACION = 0.7;    // Qué tan rápido baja la barra al concentrarse
+        let notificacionEnviada = false;  // Evita que te mande 100 notificaciones seguidas
+
+        // Pedir permiso al navegador para mandar Notificaciones Push
+        if ("Notification" in window && Notification.permission !== "granted") {
+            Notification.requestPermission();
+        }
+
+        // ==========================================
+        // 4. INICIAR LA CÁMARA LOCAL
+        // ==========================================
+        navigator.mediaDevices.getUserMedia({ video: true })
+            .then(stream => { 
+                video.srcObject = stream; 
+                estadoTexto.innerText = "Cámara lista. Analizando...";
+            })
+            .catch(err => { 
+                estadoTexto.innerText = "Error al acceder a la cámara."; 
+            });
+
+        // ==========================================
+        // 5. CAPTURAR FRAME, ENVIAR Y CALCULAR TIEMPO
+        // ==========================================
+        async function analizarFrame() {
+            ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+            
+            canvas.toBlob(async (blob) => {
+                if (!blob) return;
+
+                const url = `${AZURE_ENDPOINT}/face/v1.0/detect?returnFaceAttributes=headPose`;
+
+                try {
+                    const response = await fetch(url, {
+                        method: 'POST',
+                        headers: {
+                            'Ocp-Apim-Subscription-Key': SUBSCRIPTION_KEY,
+                            'Content-Type': 'application/octet-stream'
+                        },
+                        body: blob
+                    });
+
+                    const faces = await response.json();
+
+                    // --- CALCULAR TIEMPO TRANSCURRIDO ---
+                    let tiempoActual = Date.now();
+                    let deltaT = (tiempoActual - tiempoAnterior) / 1000; // Convertir a segundos
+                    tiempoAnterior = tiempoActual;
+                    let estaDistraido = false; // Bandera para el acumulador
+
+                    // --- EVALUACIÓN DE LA RÚBRICA ---
+                    if (faces.error) {
+                        estadoTexto.innerText = `Error: ${faces.error.message}`;
+                        return;
+                    }
+
+                    if (!faces || faces.length === 0) {
+                        estadoTexto.innerText = "Abandonó la sesión"; // REQUISITO MVP
+                        estadoTexto.className = "alerta";
+                        estaDistraido = true;
+                    } else {
+                        const headPose = faces[0].faceAttributes.headPose;
+                        const yaw = headPose.yaw;
+                        const pitch = headPose.pitch;
+
+                        // Evaluamos con los umbrales asimétricos
+                        let distraidoYaw = Math.abs(yaw) > UMBRAL_YAW;
+                        let distraidoPitch = (pitch > UMBRAL_PITCH_DOWN) || (pitch < -UMBRAL_PITCH_UP);
+
+                        if (distraidoYaw || distraidoPitch) {
+                            estadoTexto.innerText = "hubo distracción"; // REQUISITO MVP
+                            estadoTexto.className = "alerta";
+                            estaDistraido = true;
+                        } else {
+                            estadoTexto.innerText = "Estudiante concentrado";
+                            estadoTexto.className = "";
+                        }
+                    }
+
+                    // --- LÓGICA DEL ACUMULADOR DE LA BARRA ---
+                    if (estaDistraido) {
+                        nivelDistraccion += deltaT; // Sumamos los segundos que pasaron
+                    } else {
+                        nivelDistraccion -= (deltaT * TASA_RECUPERACION); // Restamos si está atento
+                    }
+
+                    // Limitar el contador entre 0 y 5
+                    nivelDistraccion = Math.max(0, Math.min(nivelDistraccion, LIMITE_SEGUNDOS));
+
+                    // --- ACTUALIZAR LA INTERFAZ DE LA BARRA ---
+                    let porcentaje = (nivelDistraccion / LIMITE_SEGUNDOS) * 100;
+                    barra.style.width = porcentaje + "%";
+                    textoBarra.innerText = `Nivel de distracción: ${nivelDistraccion.toFixed(1)}s / ${LIMITE_SEGUNDOS}s`;
+
+                    // Cambiar el color de la barra según el nivel
+                    if (porcentaje < 40) barra.style.backgroundColor = "#4CAF50";      // Verde
+                    else if (porcentaje < 80) barra.style.backgroundColor = "#FF9800"; // Naranja
+                    else barra.style.backgroundColor = "#f44336";                      // Rojo
+
+                    // --- NOTIFICACIÓN PUSH ---
+                    if (nivelDistraccion >= LIMITE_SEGUNDOS && !notificacionEnviada) {
+                        if ("Notification" in window && Notification.permission === "granted") {
+                            new Notification("¡Alerta de Atención!", {
+                                body: "Has superado los 5 segundos de distracción. ¡Regresa la vista al frente!",
+                            });
+                        } else {
+                            // Fallback por si el navegador bloquea la notificación nativa
+                            alert("¡ALERTA PUSH! Has superado los 5 segundos de distracción.");
+                        }
+                        notificacionEnviada = true; // Marcamos para no spamear
+                    } 
+                    // Si el estudiante se vuelve a concentrar por completo
+                    else if (nivelDistraccion === 0) {
+                        notificacionEnviada = false;
+                    }
+
+                } catch (error) {
+                    console.error("Error al conectar con Azure:", error);
+                }
+            }, 'image/jpeg');
+        }
+
+        // ==========================================
+        // 6. BUCLE DE EJECUCIÓN
+        // ==========================================
+        setInterval(analizarFrame, FRECUENCIA_SCAN);
+    </script>
+</body>
+</html>
