@@ -1,14 +1,37 @@
 <!DOCTYPE html>
 <html lang="es">
+
 <head>
     <meta charset="UTF-8">
     <title>Monitor de Atención - Actualización</title>
     <style>
-        body { font-family: sans-serif; text-align: center; margin-top: 30px; background-color: #f4f4f9; }
-        #video { border: 3px solid #333; width: 640px; height: 480px; border-radius: 8px; transform: scaleX(-1); }
-        #estado { font-size: 30px; font-weight: bold; margin-top: 15px; color: #333; transition: color 0.3s; }
-        .alerta { color: #d9534f !important; }
-        
+        body {
+            font-family: sans-serif;
+            text-align: center;
+            margin-top: 30px;
+            background-color: #f4f4f9;
+        }
+
+        #video {
+            border: 3px solid #333;
+            width: 640px;
+            height: 480px;
+            border-radius: 8px;
+            transform: scaleX(-1);
+        }
+
+        #estado {
+            font-size: 30px;
+            font-weight: bold;
+            margin-top: 15px;
+            color: #333;
+            transition: color 0.3s;
+        }
+
+        .alerta {
+            color: #d9534f !important;
+        }
+
         #contenedor-barra {
             width: 640px;
             height: 30px;
@@ -19,12 +42,14 @@
             border: 2px solid #ccc;
             position: relative;
         }
+
         #barra {
             height: 100%;
             width: 0%;
             background-color: #4CAF50;
             transition: width 0.3s ease, background-color 0.4s ease;
         }
+
         #texto-barra {
             position: absolute;
             width: 100%;
@@ -35,16 +60,52 @@
             top: 0;
             left: 0;
         }
+
+        /* Estilos para el video de alerta */
+        #contenedor-video-alerta {
+            display: none;
+            position: fixed;
+            /* Fija el elemento en la pantalla */
+            bottom: 20px;
+            /* Separación desde abajo */
+            right: 20px;
+            /* Separación desde la derecha */
+            background: white;
+            /* Fondo blanco para que el texto se lea bien */
+            padding: 10px;
+            border-radius: 10px;
+            box-shadow: 0px 4px 15px rgba(0, 0, 0, 0.3);
+            /* Sombra para resaltar */
+            z-index: 1000;
+            /* Asegura que aparezca por encima de todo lo demás */
+        }
+
+        #video-alerta {
+            border: 3px solid #d9534f;
+            border-radius: 8px;
+            width: 320px;
+            /* Reducido a la mitad */
+            height: 240px;
+        }
     </style>
 </head>
+
 <body>
     <h1>Monitor de Atención - Tiempo Real </h1>
-    
+
     <video id="video" autoplay muted></video>
-    
+
     <div id="contenedor-barra">
         <div id="barra"></div>
         <div id="texto-barra">Nivel de distracción: 0.0s / 5.0s</div>
+    </div>
+
+    <div id="contenedor-video-alerta">
+        <h2>¡Atención Requerida!</h2>
+        <video id="video-alerta" controls>
+            <source src="videoskeleto.mp4" type="video/mp4">
+            Tu navegador no soporta el elemento de video.
+        </video>
     </div>
 
     <canvas id="canvas" style="display:none;" width="640" height="480"></canvas>
@@ -56,11 +117,11 @@
         const SUBSCRIPTION_KEY = "AnTg6Uzlo1eHaQLad6r9S1j0K4woOaYoHDJUcnLEFngSYML35ptPJQQJ99CCAC8vTInXJ3w3AAAKACOGr4jH";
 
         // 2. AJUSTES DE PRECISIÓN
-        const UMBRAL_YAW = 35;         
-        const UMBRAL_PITCH_DOWN = 45;  
-        const UMBRAL_PITCH_UP = 20;    
-        const UMBRAL_ALEJAMIENTO = 75; 
-        const FRECUENCIA_SCAN = 1000;  // ACTUALIZADO: Ahora escanea cada 1 segundo
+        const UMBRAL_YAW = 35;
+        const UMBRAL_PITCH_DOWN = 40;
+        const UMBRAL_PITCH_UP = 20;
+        const UMBRAL_ALEJAMIENTO = 75;
+        const FRECUENCIA_SCAN = 1000;
 
         const video = document.getElementById('video');
         const canvas = document.getElementById('canvas');
@@ -69,10 +130,14 @@
         const textoBarra = document.getElementById('texto-barra');
         const ctx = canvas.getContext('2d');
 
+        // NUEVO: Referencias al video de alerta
+        const contenedorVideoAlerta = document.getElementById('contenedor-video-alerta');
+        const videoAlerta = document.getElementById('video-alerta');
+
         let tiempoAnterior = Date.now();
         let nivelDistraccion = 0.0;
         const LIMITE_SEGUNDOS = 5.0;
-        const TASA_RECUPERACION = 1.0; 
+        const TASA_RECUPERACION = 1.0;
         let notificacionEnviada = false;
 
         if ("Notification" in window && Notification.permission !== "granted") {
@@ -80,17 +145,17 @@
         }
 
         navigator.mediaDevices.getUserMedia({ video: true })
-            .then(stream => { 
-                video.srcObject = stream; 
+            .then(stream => {
+                video.srcObject = stream;
                 estadoTexto.innerText = "Analizando cada segundo...";
             })
-            .catch(err => { 
-                estadoTexto.innerText = "Error al acceder a la cámara."; 
+            .catch(err => {
+                estadoTexto.innerText = "Error al acceder a la cámara.";
             });
 
         async function analizarFrame() {
             ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
-            
+
             canvas.toBlob(async (blob) => {
                 if (!blob) return;
 
@@ -124,7 +189,7 @@
                     } else {
                         const faceRect = faces[0].faceRectangle;
                         const headPose = faces[0].faceAttributes.headPose;
-                        
+
                         let muyLejos = faceRect.width < UMBRAL_ALEJAMIENTO;
                         let distraidoYaw = Math.abs(headPose.yaw) > UMBRAL_YAW;
                         let distraidoPitch = (headPose.pitch > UMBRAL_PITCH_DOWN) || (headPose.pitch < -UMBRAL_PITCH_UP);
@@ -161,14 +226,25 @@
                     else if (porcentaje < 80) barra.style.backgroundColor = "#FF9800";
                     else barra.style.backgroundColor = "#f44336";
 
+                    // LÓGICA DE ALERTA MODIFICADA
                     if (nivelDistraccion >= LIMITE_SEGUNDOS && !notificacionEnviada) {
+                        // 1. Enviar notificación del navegador
                         if (Notification.permission === "granted") {
                             new Notification("¡Alerta!", { body: "Vuelve a la pantalla." });
                         }
+
+                        // 2. Mostrar y reproducir el video local
+                        contenedorVideoAlerta.style.display = "block";
+                        videoAlerta.currentTime = 0; // Reinicia el video desde el inicio
+                        videoAlerta.play().catch(e => console.log("El navegador bloqueó el autoplay con sonido. Haz clic en la página antes.", e));
+
                         notificacionEnviada = true;
-                    } 
-                    else if (nivelDistraccion === 0) {
+                    }
+                    else if (nivelDistraccion === 0 && notificacionEnviada) {
+                        // Ocultar y pausar el video cuando el usuario vuelva a estar concentrado
                         notificacionEnviada = false;
+                        contenedorVideoAlerta.style.display = "none";
+                        videoAlerta.pause();
                     }
 
                 } catch (error) {
@@ -181,4 +257,5 @@
         setInterval(analizarFrame, FRECUENCIA_SCAN);
     </script>
 </body>
+
 </html>
