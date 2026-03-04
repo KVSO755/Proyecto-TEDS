@@ -2,13 +2,19 @@
 <html lang="es">
 <head>
     <meta charset="UTF-8">
-    <title>Monitor de Atención - Actualización</title>
+    <title>MVP Monitor de Atención - Versión Documentada</title>
     <style>
-        body { font-family: sans-serif; text-align: center; margin-top: 30px; background-color: #f4f4f9; }
-        #video { border: 3px solid #333; width: 640px; height: 480px; border-radius: 8px; transform: scaleX(-1); }
-        #estado { font-size: 30px; font-weight: bold; margin-top: 15px; color: #333; transition: color 0.3s; }
-        .alerta { color: #d9534f !important; }
+        /* --- ESTILOS VISUALES --- */
+        body { font-family: 'Segoe UI', sans-serif; text-align: center; margin-top: 30px; background-color: #f4f4f9; }
         
+        /* Estilo del video (espejado para que sea natural para el usuario) */
+        #video { border: 3px solid #333; width: 640px; height: 480px; border-radius: 8px; transform: scaleX(-1); }
+        
+        /* Texto de estado dinámico */
+        #estado { font-size: 28px; font-weight: bold; margin-top: 15px; color: #333; transition: color 0.3s; }
+        .alerta { color: #d9534f !important; } /* Rojo para alertas */
+        
+        /* Contenedor de la barra de progreso */
         #contenedor-barra {
             width: 640px;
             height: 30px;
@@ -19,12 +25,16 @@
             border: 2px solid #ccc;
             position: relative;
         }
+
+        /* La barra interna que crece o decrece */
         #barra {
             height: 100%;
             width: 0%;
-            background-color: #4CAF50;
+            background-color: #4CAF50; /* Inicia verde */
             transition: width 0.3s ease, background-color 0.4s ease;
         }
+
+        /* Texto encima de la barra */
         #texto-barra {
             position: absolute;
             width: 100%;
@@ -38,7 +48,7 @@
     </style>
 </head>
 <body>
-    <h1>Monitor de Atención - Tiempo Real </h1>
+    <h1>Monitor de Atención - Cognitive Services</h1>
     
     <video id="video" autoplay muted></video>
     
@@ -48,20 +58,26 @@
     </div>
 
     <canvas id="canvas" style="display:none;" width="640" height="480"></canvas>
+    
     <p id="estado">Iniciando cámara...</p>
 
     <script>
+        // ==========================================
         // 1. CONFIGURACIÓN DE AZURE
+        // ==========================================
         const AZURE_ENDPOINT = "https://face-mpv.cognitiveservices.azure.com";
         const SUBSCRIPTION_KEY = "AnTg6Uzlo1eHaQLad6r9S1j0K4woOaYoHDJUcnLEFngSYML35ptPJQQJ99CCAC8vTInXJ3w3AAAKACOGr4jH";
 
-        // 2. AJUSTES DE PRECISIÓN
-        const UMBRAL_YAW = 35;         
-        const UMBRAL_PITCH_DOWN = 45;  
-        const UMBRAL_PITCH_UP = 20;    
-        const UMBRAL_ALEJAMIENTO = 75; 
-        const FRECUENCIA_SCAN = 1000;  // ACTUALIZADO: Ahora escanea cada 1 segundo
+        // ==========================================
+        // 2. AJUSTES DE PRECISIÓN (SENSIBILIDAD)
+        // ==========================================
+        const UMBRAL_YAW = 35;         // Giro cabeza Izq/Der (35° es más permisivo)
+        const UMBRAL_PITCH_DOWN = 37;  // Mirar abajo al teclado (45° evita falsos positivos)
+        const UMBRAL_PITCH_UP = 20;    // Mirar arriba (20°)
+        const UMBRAL_ALEJAMIENTO = 75; // Ancho de cara en px (menos de 75 es "lejos")
+        const FRECUENCIA_SCAN = 1000;  // Tiempo entre análisis (1 segundo)
 
+        // Elementos del DOM
         const video = document.getElementById('video');
         const canvas = document.getElementById('canvas');
         const estadoTexto = document.getElementById('estado');
@@ -69,31 +85,44 @@
         const textoBarra = document.getElementById('texto-barra');
         const ctx = canvas.getContext('2d');
 
+        // ==========================================
+        // 3. VARIABLES DE CONTROL DE TIEMPO
+        // ==========================================
         let tiempoAnterior = Date.now();
         let nivelDistraccion = 0.0;
-        const LIMITE_SEGUNDOS = 5.0;
-        const TASA_RECUPERACION = 1.0; 
-        let notificacionEnviada = false;
+        const LIMITE_SEGUNDOS = 5.0;     // Tiempo máximo de distracción permitido
+        const TASA_RECUPERACION = 1.0;   // Qué tan rápido baja la barra al estar atento
+        let notificacionEnviada = false; // Evita notificaciones repetitivas
 
+        // Solicitar permisos de notificación al cargar
         if ("Notification" in window && Notification.permission !== "granted") {
             Notification.requestPermission();
         }
 
+        // ==========================================
+        // 4. INICIAR STREAM DE VIDEO
+        // ==========================================
         navigator.mediaDevices.getUserMedia({ video: true })
             .then(stream => { 
                 video.srcObject = stream; 
-                estadoTexto.innerText = "Analizando cada segundo...";
+                estadoTexto.innerText = "Cámara lista. Analizando cada segundo...";
             })
             .catch(err => { 
-                estadoTexto.innerText = "Error al acceder a la cámara."; 
+                estadoTexto.innerText = "Error: No se pudo acceder a la cámara."; 
             });
 
+        // ==========================================
+        // 5. FUNCIÓN PRINCIPAL DE ANÁLISIS
+        // ==========================================
         async function analizarFrame() {
+            // Dibujar el frame actual del video en el canvas oculto
             ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
             
+            // Convertir el canvas a formato JPEG para enviar a la API
             canvas.toBlob(async (blob) => {
                 if (!blob) return;
 
+                // URL de la API de Azure Face (solicitamos headPose y faceRectangle)
                 const url = `${AZURE_ENDPOINT}/face/v1.0/detect?returnFaceAttributes=headPose`;
 
                 try {
@@ -107,77 +136,102 @@
                     });
 
                     const faces = await response.json();
-                    let tiempoActual = Date.now();
-                    let deltaT = (tiempoActual - tiempoAnterior) / 1000;
-                    tiempoAnterior = tiempoActual;
-                    let estaDistraido = false;
 
+                    // Calcular tiempo real transcurrido entre este análisis y el anterior
+                    let tiempoActual = Date.now();
+                    let deltaT = (tiempoActual - tiempoAnterior) / 1000; 
+                    tiempoAnterior = tiempoActual;
+                    
+                    let estaDistraido = false; // Bandera de estado actual
+
+                    // Manejo de errores de la API
                     if (faces.error) {
-                        estadoTexto.innerText = `Error: ${faces.error.message}`;
+                        estadoTexto.innerText = `Error API: ${faces.error.message}`;
                         return;
                     }
 
+                    // A) Si no se detecta ninguna cara
                     if (!faces || faces.length === 0) {
                         estadoTexto.innerText = "Rostro no detectado";
                         estadoTexto.className = "alerta";
                         estaDistraido = true;
-                    } else {
-                        const faceRect = faces[0].faceRectangle;
-                        const headPose = faces[0].faceAttributes.headPose;
+                    } 
+                    else {
+                        // Extraer datos de la primera cara detectada
+                        const faceRect = faces[0].faceRectangle; // Datos de posición/tamaño
+                        const headPose = faces[0].faceAttributes.headPose; // Datos de inclinación
                         
+                        // B) Lógica de alejamiento (basada en el ancho de la detección)
                         let muyLejos = faceRect.width < UMBRAL_ALEJAMIENTO;
+
+                        // C) Lógica de orientación (ángulos de la cabeza)
                         let distraidoYaw = Math.abs(headPose.yaw) > UMBRAL_YAW;
                         let distraidoPitch = (headPose.pitch > UMBRAL_PITCH_DOWN) || (headPose.pitch < -UMBRAL_PITCH_UP);
 
+                        // Evaluar qué mensaje mostrar
                         if (muyLejos) {
-                            estadoTexto.innerText = "¡Te has alejado!";
+                            estadoTexto.innerText = "¡Te has alejado demasiado!";
                             estadoTexto.className = "alerta";
                             estaDistraido = true;
                         } else if (distraidoYaw || distraidoPitch) {
-                            estadoTexto.innerText = "¡Distraído!";
+                            estadoTexto.innerText = "¡Vuelve la vista a la pantalla!";
                             estadoTexto.className = "alerta";
                             estaDistraido = true;
                         } else {
-                            estadoTexto.innerText = "Concentrado";
+                            estadoTexto.innerText = "Estudiante concentrado";
                             estadoTexto.className = "";
                             estaDistraido = false;
                         }
                     }
 
+                    // ==========================================
+                    // 6. LÓGICA DEL ACUMULADOR (LA BARRA)
+                    // ==========================================
                     if (estaDistraido) {
-                        nivelDistraccion += deltaT;
+                        nivelDistraccion += deltaT; // Sube la barra según el tiempo transcurrido
                     } else {
-                        nivelDistraccion -= (deltaT * TASA_RECUPERACION);
+                        nivelDistraccion -= (deltaT * TASA_RECUPERACION); // Baja la barra
                     }
 
+                    // Mantener el nivel entre 0 y el límite (5s)
                     nivelDistraccion = Math.max(0, Math.min(nivelDistraccion, LIMITE_SEGUNDOS));
 
-                    // Actualización visual
+                    // Actualizar UI de la barra y colores
                     let porcentaje = (nivelDistraccion / LIMITE_SEGUNDOS) * 100;
                     barra.style.width = porcentaje + "%";
                     textoBarra.innerText = `Nivel de distracción: ${nivelDistraccion.toFixed(1)}s / ${LIMITE_SEGUNDOS}s`;
 
-                    if (porcentaje < 40) barra.style.backgroundColor = "#4CAF50";
-                    else if (porcentaje < 80) barra.style.backgroundColor = "#FF9800";
-                    else barra.style.backgroundColor = "#f44336";
+                    // Cambio de colores según gravedad
+                    if (porcentaje < 40) barra.style.backgroundColor = "#4CAF50";      // Verde
+                    else if (porcentaje < 80) barra.style.backgroundColor = "#FF9800"; // Naranja
+                    else barra.style.backgroundColor = "#f44336";                     // Rojo
 
+                    // ==========================================
+                    // 7. NOTIFICACIÓN PUSH DE ALERTA FINAL
+                    // ==========================================
                     if (nivelDistraccion >= LIMITE_SEGUNDOS && !notificacionEnviada) {
+                        const aviso = "¡ALERTA! Has perdido la concentración por más de 5 segundos.";
                         if (Notification.permission === "granted") {
-                            new Notification("¡Alerta!", { body: "Vuelve a la pantalla." });
+                            new Notification("Sistema de Atención", { body: aviso });
+                        } else {
+                            alert(aviso);
                         }
                         notificacionEnviada = true;
                     } 
+                    // Resetear la bandera cuando el usuario vuelve a estar concentrado al 100%
                     else if (nivelDistraccion === 0) {
                         notificacionEnviada = false;
                     }
 
                 } catch (error) {
-                    console.error("Error:", error);
+                    console.error("Error en la conexión con Azure:", error);
                 }
             }, 'image/jpeg');
         }
 
-        // Ejecutar inmediatamente la primera vez y luego cada segundo
+        // ==========================================
+        // 8. INICIO DEL BUCLE (Cada 1000ms)
+        // ==========================================
         setInterval(analizarFrame, FRECUENCIA_SCAN);
     </script>
 </body>
