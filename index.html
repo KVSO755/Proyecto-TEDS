@@ -2,7 +2,7 @@
 <html lang="es">
 <head>
     <meta charset="UTF-8">
-    <title>Monitor de Atención Pro - Versión Final Documentada</title>
+    <title>Monitor de Atencion Pro - Version Final</title>
     <style>
         /* --- 1. ESTILOS DE LA INTERFAZ BASE --- */
         body { 
@@ -12,14 +12,28 @@
             background-color: #f0f2f5; 
         }
 
-        /* Estilo para el contenedor del video de la cámara */
         #video { 
             border: 4px solid #2c3e50; 
             width: 600px; 
             height: 450px; 
             border-radius: 12px; 
-            transform: scaleX(-1); /* Espeja la imagen para que sea natural */
+            transform: scaleX(-1); 
             background-color: #000;
+        }
+
+        /* --- ESTILO PARA EL VIDEO DE LA DERECHA --- */
+        #video-derecha {
+            display: none; /* Oculto por defecto */
+            position: fixed;
+            top: 50%;
+            right: 20px;
+            transform: translateY(-50%);
+            width: 300px; 
+            border: 4px solid #d9534f; /* Borde rojo para que combine con la alerta */
+            border-radius: 12px;
+            background-color: #000;
+            z-index: 10000; /* Por encima de la capa de bloqueo */
+            box-shadow: 0px 0px 20px rgba(217, 83, 79, 0.8);
         }
 
         /* --- 2. ESTILOS DE LA BARRA DE PROGRESO --- */
@@ -29,15 +43,15 @@
             background-color: #d1d1d1;
             margin: 20px auto;
             border-radius: 20px;
-            overflow: hidden; /* Corta el exceso de la barra interna */
+            overflow: hidden; 
             border: 2px solid #bbb;
-            position: relative; /* Permite que el texto flote encima */
+            position: relative; 
         }
 
         #barra {
             height: 100%;
-            width: 0%; /* Empieza vacía */
-            background-color: #2ecc71; /* Verde inicial */
+            width: 0%; 
+            background-color: #2ecc71; 
             transition: width 0.4s ease, background-color 0.4s ease;
         }
 
@@ -45,19 +59,20 @@
             position: absolute;
             width: 100%;
             text-align: center;
-            line-height: 35px; /* Centra el texto verticalmente */
+            line-height: 35px; 
             font-weight: bold;
             top: 0; left: 0;
+            color: #333;
         }
 
         /* --- 3. ESTILOS DEL RECUADRO DE ALERTA (MODAL) --- */
         #capa-bloqueo {
-            display: none; /* Se oculta hasta que el JS lo activa */
+            display: none; 
             position: fixed; 
             top: 0; left: 0; 
             width: 100%; height: 100%;
-            background: rgba(0, 0, 0, 0.85); /* Fondo negro translúcido */
-            z-index: 9999; /* Asegura que esté por encima de todo */
+            background: rgba(0, 0, 0, 0.85); 
+            z-index: 9999; 
             justify-content: center; 
             align-items: center;
         }
@@ -70,13 +85,13 @@
             border: 5px solid #d9534f;
             box-shadow: 0px 0px 30px rgba(217, 83, 79, 0.6);
             max-width: 450px;
-        }
+        }°
 
         #cuadro-alerta h2 { color: #d9534f; margin: 0 0 10px 0; }
 
         #cuadro-alerta button {
             background: #2ecc71; 
-            color: white; 
+            color: white; °°
             border: none;
             padding: 12px 30px; 
             border-radius: 8px; 
@@ -85,19 +100,23 @@
             font-weight: bold;
         }
 
-        /* Estado del texto debajo del video */
         #estado { font-size: 24px; font-weight: 600; margin-top: 10px; }
         .texto-alerta { color: #d9534f; }
     </style>
 </head>
 <body>
 
-    <h1>Monitor de Atención Inteligente</h1>
+    <h1>Monitor de Atencion Inteligente</h1>
+
+    <video id="video-derecha" loop controls>
+        <source src="videoskeleto.mp4" type="video/mp4">
+        Tu navegador no soporta el elemento de video.
+    </video>
 
     <div id="capa-bloqueo">
         <div id="cuadro-alerta">
-            <h2>🚨 ¡DISTRACCIÓN!</h2>
-            <p>Has superado el tiempo límite de distracción. Regresa tu atención a la pantalla.</p>
+            <h2>🚨 ¡DISTRACCION!</h2>
+            <p>Has superado el tiempo limite de distraccion. Regresa tu atencion a la pantalla.</p>
             <button onclick="cerrarAlerta()">ENTENDIDO / VOLVER</button>
         </div>
     </div>
@@ -106,7 +125,7 @@
 
     <div id="contenedor-barra">
         <div id="barra"></div>
-        <div id="texto-barra">Nivel de distracción: 0.0s / 5.0s</div>
+        <div id="texto-barra">Nivel de distraccion: 0.0s / 5.0s</div>
     </div>
 
     <p id="estado">Iniciando sistema...</p>
@@ -114,20 +133,14 @@
     <canvas id="canvas" style="display:none;" width="640" height="480"></canvas>
 
     <script>
-        // ==========================================
-        // 1. CONFIGURACIÓN DE CREDENCIALES
-        // ==========================================
         const AZURE_ENDPOINT = "https://face-mpv.cognitiveservices.azure.com";
         const SUBSCRIPTION_KEY = "AnTg6Uzlo1eHaQLad6r9S1j0K4woOaYoHDJUcnLEFngSYML35ptPJQQJ99CCAC8vTInXJ3w3AAAKACOGr4jH";
 
-        // ==========================================
-        // 2. CONFIGURACIÓN DE SENSIBILIDAD
-        // ==========================================
-        const UMBRAL_YAW = 27;         // Grados permitidos para girar cabeza (izq/der)
-        const UMBRAL_PITCH_DOWN = 37;  // Grados permitidos para mirar abajo (teclado)
-        const UMBRAL_PITCH_UP = 20;    // Grados permitidos para mirar arriba
-        const UMBRAL_ALEJAMIENTO = 75; // Ancho mínimo de cara (si es menor, el usuario está lejos)
-        const FRECUENCIA_SCAN = 1000;  // ACTUALIZACIÓN: Cada 1000ms (1 segundo)
+        const UMBRAL_YAW = 27;         
+        const UMBRAL_PITCH_DOWN = 37;  
+        const UMBRAL_PITCH_UP = 20;    
+        const UMBRAL_ALEJAMIENTO = 75; 
+        const FRECUENCIA_SCAN = 1500;  
 
         // Referencias a los elementos del HTML
         const video = document.getElementById('video');
@@ -136,14 +149,15 @@
         const barra = document.getElementById('barra');
         const textoBarra = document.getElementById('texto-barra');
         const capaBloqueo = document.getElementById('capa-bloqueo');
+        const videoDerecha = document.getElementById('video-derecha'); // NUEVO
         const ctx = canvas.getContext('2d');
 
         // Variables de control de estado y tiempo
         let tiempoAnterior = Date.now();
         let nivelDistraccion = 0.0;
-        const LIMITE_SEGUNDOS = 5.0;     // Tiempo máximo antes de que salte el recuadro
-        const TASA_RECUPERACION = 1.2;   // Velocidad con la que baja la barra al estar atento
-        let alertaActiva = false;        // Pausa el escaneo mientras el mensaje está en pantalla
+        const LIMITE_SEGUNDOS = 5.0;     
+        const TASA_RECUPERACION = 1.2;   
+        let alertaActiva = false;        
 
         // ==========================================
         // 3. INICIAR CÁMARA
@@ -154,27 +168,21 @@
                 estadoTexto.innerText = "Sistema Activo - Escaneando cada segundo";
             })
             .catch(err => { 
-                estadoTexto.innerText = "Error: No se encontró cámara."; 
+                estadoTexto.innerText = "Error: No se encontro camara."; 
             });
 
-        // ==========================================
-        // 4. FUNCIÓN PARA CERRAR EL MODAL
-        // ==========================================
         function cerrarAlerta() {
-            capaBloqueo.style.display = "none"; // Oculta el recuadro negro
-            nivelDistraccion = 0;              // Reinicia la barra a cero
-            alertaActiva = false;              // Permite que el escaneo continúe
-            tiempoAnterior = Date.now();       // Sincroniza el tiempo para evitar saltos
+            capaBloqueo.style.display = "none"; 
+            videoDerecha.style.display = "none"; // Oculta el video de la derecha
+            videoDerecha.pause();                // Pausa el video
+            nivelDistraccion = 0;              
+            alertaActiva = false;              
+            tiempoAnterior = Date.now();       
         }
 
-        // ==========================================
-        // 5. BUCLE DE ANÁLISIS (CADA 1 SEGUNDO)
-        // ==========================================
         async function analizarFrame() {
-            // Si el recuadro de alerta está abierto, no hacemos nada (ahorra dinero y recursos)
             if (alertaActiva) return;
 
-            // Dibuja el frame del video en el canvas
             ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
             
             // Convierte el dibujo en una imagen binaria (Blob)
@@ -196,16 +204,13 @@
 
                     const faces = await response.json();
                     
-                    // Calculamos cuánto tiempo pasó realmente desde la última vez
                     let tiempoActual = Date.now();
                     let deltaT = (tiempoActual - tiempoAnterior) / 1000;
                     tiempoAnterior = tiempoActual;
                     
                     let estaDistraido = false;
 
-                    // Lógica de evaluación de resultados de la IA
                     if (!faces || faces.length === 0) {
-                        // Caso A: No hay nadie frente a la cámara
                         estadoTexto.innerText = "Abandono la sesion";
                         estadoTexto.className = "texto-alerta";
                         estaDistraido = true;
@@ -236,28 +241,30 @@
 
                     // --- MANEJO DEL ACUMULADOR (LA BARRA) ---
                     if (estaDistraido) {
-                        nivelDistraccion += deltaT; // Si está distraído, sumamos tiempo
+                        nivelDistraccion += deltaT; 
                     } else {
-                        nivelDistraccion -= (deltaT * TASA_RECUPERACION); // Si está atento, restamos
+                        nivelDistraccion -= (deltaT * TASA_RECUPERACION); 
                     }
 
                     // Forzamos que el nivel no baje de 0 ni suba de 5
                     nivelDistraccion = Math.max(0, Math.min(nivelDistraccion, LIMITE_SEGUNDOS));
 
-                    // --- ACTUALIZACIÓN VISUAL ---
                     let porcentaje = (nivelDistraccion / LIMITE_SEGUNDOS) * 100;
                     barra.style.width = porcentaje + "%";
-                    textoBarra.innerText = `Nivel de distracción: ${nivelDistraccion.toFixed(1)}s / ${LIMITE_SEGUNDOS}s`;
+                    textoBarra.innerText = `Nivel de distraccion: ${nivelDistraccion.toFixed(1)}s / ${LIMITE_SEGUNDOS}s`;
 
-                    // Colores dinámicos según el peligro
-                    if (porcentaje < 40) barra.style.backgroundColor = "#2ecc71"; // Verde
-                    else if (porcentaje < 80) barra.style.backgroundColor = "#f1c40f"; // Amarillo
-                    else barra.style.backgroundColor = "#e74c3c"; // Rojo
+                    if (porcentaje < 40) barra.style.backgroundColor = "#2ecc71"; 
+                    else if (porcentaje < 80) barra.style.backgroundColor = "#f1c40f"; 
+                    else barra.style.backgroundColor = "#e74c3c"; 
 
-                    // --- ACTIVAR ALERTA DE RECUADRO ---
                     if (nivelDistraccion >= LIMITE_SEGUNDOS) {
                         alertaActiva = true;
-                        capaBloqueo.style.display = "flex"; // Muestra el modal oscuro
+                        capaBloqueo.style.display = "flex"; 
+                        
+                        // Mostrar y reproducir el video de la derecha
+                        videoDerecha.style.display = "block";
+                        videoDerecha.currentTime = 0;
+                        videoDerecha.play().catch(e => console.log("Bloqueado por el navegador", e));
                     }
 
                 } catch (error) {
@@ -266,7 +273,6 @@
             }, 'image/jpeg');
         }
 
-        // Iniciamos el intervalo de escaneo cada 1 segundo (1000ms)
         setInterval(analizarFrame, FRECUENCIA_SCAN);
     </script>
 </body>
