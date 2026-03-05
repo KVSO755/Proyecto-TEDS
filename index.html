@@ -142,6 +142,7 @@
         const UMBRAL_ALEJAMIENTO = 75; 
         const FRECUENCIA_SCAN = 1500;  
 
+        // Referencias a los elementos del HTML
         const video = document.getElementById('video');
         const canvas = document.getElementById('canvas');
         const estadoTexto = document.getElementById('estado');
@@ -151,12 +152,16 @@
         const videoDerecha = document.getElementById('video-derecha'); // NUEVO
         const ctx = canvas.getContext('2d');
 
+        // Variables de control de estado y tiempo
         let tiempoAnterior = Date.now();
         let nivelDistraccion = 0.0;
         const LIMITE_SEGUNDOS = 5.0;     
         const TASA_RECUPERACION = 1.2;   
         let alertaActiva = false;        
 
+        // ==========================================
+        // 3. INICIAR CÁMARA
+        // ==========================================
         navigator.mediaDevices.getUserMedia({ video: true })
             .then(stream => { 
                 video.srcObject = stream; 
@@ -180,9 +185,11 @@
 
             ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
             
+            // Convierte el dibujo en una imagen binaria (Blob)
             canvas.toBlob(async (blob) => {
                 if (!blob) return;
 
+                // Definimos la URL de Azure pidiendo los atributos de postura de cabeza y cuadro facial
                 const url = `${AZURE_ENDPOINT}/face/v1.0/detect?returnFaceAttributes=headPose`;
 
                 try {
@@ -212,6 +219,7 @@
                         const faceRect = faces[0].faceRectangle;
                         const headPose = faces[0].faceAttributes.headPose;
                         
+                        // Validamos contra los umbrales de sensibilidad configurados
                         let muyLejos = faceRect.width < UMBRAL_ALEJAMIENTO;
                         let distraidoYaw = Math.abs(headPose.yaw) > UMBRAL_YAW;
                         let distraidoPitch = (headPose.pitch > UMBRAL_PITCH_DOWN) || (headPose.pitch < -UMBRAL_PITCH_UP);
@@ -231,12 +239,14 @@
                         }
                     }
 
+                    // --- MANEJO DEL ACUMULADOR (LA BARRA) ---
                     if (estaDistraido) {
                         nivelDistraccion += deltaT; 
                     } else {
                         nivelDistraccion -= (deltaT * TASA_RECUPERACION); 
                     }
 
+                    // Forzamos que el nivel no baje de 0 ni suba de 5
                     nivelDistraccion = Math.max(0, Math.min(nivelDistraccion, LIMITE_SEGUNDOS));
 
                     let porcentaje = (nivelDistraccion / LIMITE_SEGUNDOS) * 100;
